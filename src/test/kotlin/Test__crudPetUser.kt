@@ -1,69 +1,39 @@
-import okhttp3.*
-import org.junit.jupiter.api.*
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.example.ModelUser
-import kotlin.test.assertEquals
+import io.restassured.RestAssured
+import io.restassured.filter.log.RequestLoggingFilter
+import io.restassured.filter.log.ResponseLoggingFilter
+import io.restassured.path.json.JsonPath
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.data.Percentage
+import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Test
 
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class Test__crudPetUser {
 
-    private val client = OkHttpClient()
-    private val mapper = jacksonObjectMapper()
-    private val baseUrl = "https://petstore.swagger.io/v2/user"
-    private val username = "Alex"
-
-    private val user = ModelUser.User(
-        id = 123456789,
-        username = username,
-        firstName = "Alex",
-        lastName = "Nazar",
-        email = "alex@mail.com",
-        password = "12345",
-        phone = "+79998887766",
-        userStatus = 1
-    )
-
     @Test
-    fun crudUser() {
-        // CREATE
-        val createResponse = post("$baseUrl", user)
-        assertEquals(200, createResponse.code, "Создание пользователя должно вернуть 200")
+    @DisplayName("Проверка количества подсказок в ЕМ РУ")
+    fun test_hintCountRusEm() {
+        // включаем постоянное логирование запросов и ответов
+        RestAssured.filters(RequestLoggingFilter(), ResponseLoggingFilter())
 
-        Thread.sleep(10000)
+        val indexUrl = "http://dmz-es-suggestion.search.prod.aservices.tech:80/prod_expert_suggestion_read/_count"
+        val expectedCount = 9834844
 
-        // DELETE
-        val deleteResponse = delete("$baseUrl/$username")
+        val response = RestAssured
+            .given()
+            .header("x-source", "qa/simple-test")
+            .get(indexUrl)
+            .then()
+            .statusCode(200)
+            .extract()
+            .asString()
 
-        Thread.sleep(10000)
+        val actualCount = JsonPath.from(response).getInt("count")
 
-        // Проверка, что пользователь удалён
-        val afterDelete = delete("$baseUrl/$username")
-        assertEquals(404, afterDelete.code, "После удаления должен быть 404")
-    }
+        println("Actual count: $actualCount")
 
-    // HTTP methods
-
-    private fun post(url: String, bodyObj: Any): Response {
-        val json = mapper.writeValueAsString(bodyObj)
-        val body = json.toRequestBody("application/json".toMediaType())
-        val request = Request.Builder()
-            .url(url)
-            .post(body)
-            .addHeader("Content-Type", "application/json")
-            .addHeader("accept", "application/json")
-            .build()
-        return client.newCall(request).execute()
-    }
-
-    private fun delete(url: String): Response {
-        val request = Request.Builder()
-            .url(url)
-            .delete()
-            .addHeader("accept", "application/json")
-            .build()
-        return client.newCall(request).execute()
+        assertThat(actualCount)
+            .withFailMessage("Количество подсказок не в пределах 5% от ожидаемого")
+            .isCloseTo(expectedCount, Percentage.withPercentage(5.0))
     }
 }
